@@ -1,0 +1,52 @@
+const unsigned int NO_DEBUG = 0x4242;  // If received, not displayed.
+
+const int SEND_MESSAGE     = 129;
+const int SEND_FPS         = 130;
+const int SEND_PITCH       = 131;
+const int SEND_HEADING     = 132;
+const int SEND_SONAR_R     = 133;
+const int SEND_ROUTE_STEP  = 134;
+const int SEND_DUMP_DATA   = 135;
+const int SEND_STATE       = 136;
+const int SEND_BATT        = 137;
+const int SEND_MODE        = 138;
+const int SEND_VALSET      = 139;
+const int SEND_ROUTE_NAME  = 140;
+const int SEND_X           = 141;
+const int SEND_Y           = 142;
+const int SEND_SONAR_F     = 143;
+const int SEND_SONAR_L     = 144;
+const int SEND_DUMP_TICKS  = 145;
+
+const int RCV_JOYX         = 129;
+const int RCV_JOYY         = 130;
+const int RCV_RUN          = 131;
+const int RCV_LIGHTS       = 132;
+const int RCV_ROUTE        = 133;
+const int RCV_ROUTE_ES     = 134;
+const int RCV_DUMP_START   = 135;
+const int RCV_T            = 136;
+const int RCV_U            = 137;
+const int RCV_V            = 138;
+const int RCV_W            = 139;
+const int RCV_X            = 140;
+const int RCV_Y            = 141;
+const int RCV_Z            = 142;
+const int RCV_RESET_NAV    = 143;
+const int RCV_ROTATE       = 144;
+const int RCV_HOLD_HEADING = 145;
+const int RCV_SPIN         = 146;
+const int RCV_XXXXXXXXX1   = 147; // unused
+const int RCV_SET_ROUTE    = 148; // 0 to decrease, 1 to increase
+const int RCV_ROUTE_DATA   = 149; 
+const int RCV_XXXX_ROUTE   = 150;
+const int RCV_DELETE_ROUTE = 151;
+const int RCV_MODE         = 152;
+const int RCV_STAND        = 153;
+const int RCV_SONAR_R      = 154; // Right sonar on/off
+const int RCV_SONAR_F      = 155; 
+const int RCV_SONAR_L      = 156; 
+const int RCV_DUMP_TICKS   = 157; 
+
+const int SEND_RCV_TERM    =   0;
+
