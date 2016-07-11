@@ -1,34 +1,27 @@
 /* ---------------------- ThreePotatoe ----------------------- */
 
 #include "Common.h"
-//#include <DueTimer.h>
 #include <Servo.h>
 #include <Wire.h>
-#include <L3G.h>
-#include <LSM303.h>
+#include <LSM6.h>
 
-#define XBEE_SER Serial3
+#define DS33_SA0_HIGH_ADDRESS 0b1101011
+#define DS33_SA0_LOW_ADDRESS  0b1101010
+
+#define XBEE_SER Serial2
 #define BLUE_SER Serial1
-#define SONAR_SER Serial2
+#define SONAR_SER Serial3
 
-#define TICKS_PER_FOOT 2222.0D // For Losi DB XL 1/5 scale
-//#define TICKS_PER_CIRCLE_YAW  11900.0  // For Pro-Line Masher 2.8" PRO1192-12
-#define TICKS_PER_CIRCLE_YAW  7816.0  // For Losi DB XL 1/5 scale
-
-const int SERVO_CENTER_RIGHT = 1650;
-const int SERVO_CENTER_LEFT = 1550;
-
-L3G gyro;
-LSM303 compass;
+LSM6 lsm6;
 
 // defines for motor pins
 // connections are reversed here to produce correct forward motion in both motors
-const int MOT_RIGHT_ENCA =  35;  
-const int MOT_RIGHT_ENCB =  37; 
-const int MOT_RIGHT_ENCC =  39; 
-const int MOT_LEFT_ENCA =   45;   
-const int MOT_LEFT_ENCB =   47; 
-const int MOT_LEFT_ENCC =   49; 
+const int MOT_RIGHT_ENCA =  49;  
+const int MOT_RIGHT_ENCB =  51; 
+const int MOT_RIGHT_ENCC =  53; 
+const int MOT_LEFT_ENCA =   48;   
+const int MOT_LEFT_ENCB =   50; 
+const int MOT_LEFT_ENCC =   52; 
 
 const double SPEED_MULTIPLIER = 12.0;
 const unsigned int TP_PWM_FREQUENCY = 10000;
@@ -53,26 +46,32 @@ const int HEADING_SOURCE_GM = 3;
 #define SONAR_LEFT 2
 #define SONAR_BOTH 3
 
-#define LED_PIN 13 // LED connected to digital pin 13
 
-#define SERVO_R_PIN 26
-#define SERVO_L_PIN 24
+//#define HOVER_POWER_PIN A0  // Divided 4.3V to gyro boards
 
-//#define SW1_PIN 46
-//#define SW2_PIN 47
-//#define SW3_PIN 48
-//#define SW4_PIN 49
+#define SERVO_R_PIN    40
+#define SERVO_L_PIN    41
 
-//#define FOOTSW_PIN 52
+#define SW_LED_PIN     24 // LED switch
+#define SW_R_PIN       26 // Far right switch
+#define SW_L_PIN       28 // Middle switch
 
-#define BATT_LOGIC_PIN A0
-#define BATT_MOTOR_PIN A1
+#define LED_PIN        13 // LED connected to digital pin 13
+#define LED_YE_PIN     45
+#define IR_R_PIN       42 // Infrared switch, right
+#define IR_L_PIN       43
+#define GYRO_INTR_PIN  35
 
-#define SONAR_RIGHT_PIN 43
-#define SONAR_LEFT_PIN 45
+#define BATT_A_PIN A0
+#define BATT_B_PIN A1
 
 #define A_LIM 20.0 // degrees at which the speedAdjustment starts reducing.
 #define S_LIM 1.0  // maximum speedAdjustment;
+
+int servoCenterR = 1700;
+int servoCenterL = 1530;
+
+String tab = "\t";
 
 //Encoder factor
 //const double ENC_FACTOR = 1329.0f;  // Change pulse width to fps speed, 1/29 gear
@@ -95,12 +94,12 @@ const double ENC_BRAKE_FACTOR = ENC_FACTOR * 0.95f;
 #define GYRO_WEIGHT 0.98    // Weight for gyro compared to accelerometer
 #define DEFAULT_GRID_OFFSET 0.0
 #define SONAR_SENS 0.0385
+#define TICKS_PER_FOOT        104.50D  // Hoverboard
+#define TICKS_PER_CIRCLE_YAW  558.00D  // Hoverboard
+
 
 // Decrease this value to get greater turn for a given angle
-//#define GYRO_SENS 0.0660     // Multiplier to get degree. subtract 1.8662% * 8 for 2000d/sec
-#define GYRO_SENS 0.0664     // Multiplier to get degree. subtract 1.8662% * 8 for 2000d/sec
-//#define GYRO_SENS 0.0665     // Multiplier to get degree. subtract 1.8662% * 8 for 2000d/sec
-//#define GYRO_SENS 0.0670     // Multiplier to get degree. subtract 1.8662% * 8 for 2000d/sec
+#define GYRO_SENS 0.0690     // Multiplier to get degree for 2000d/sec
 
 #define INVALID_VAL -123456.78D
 
@@ -181,6 +180,8 @@ double hugSonarDistance = 0.0D;
 double hugBearing = 0.0D;
 char hugDirection = 'N';
 boolean isHug = false;
+boolean isLockStand = true;
+int lockStartTicks = 0;
 
 int routeStepPtr = 0;
 String routeTitle = "No route";
@@ -225,6 +226,10 @@ double gaPitch = 0.0;
 double gaFullPitch = 0.0;
 double tgaPitch = 0.0;
 double gaRoll = 0.0;
+double gyroPitchRaw = 0.0;
+double gyroPitchRate = 0.0;
+double gyroPitchDelta = 0.0; 
+double gPitch = 0.0;
 
 double aPitch = 0.0;
 double aRoll = 0.0;
@@ -232,9 +237,10 @@ double aRoll = 0.0;
 double pitchDrift = 0.0D;
 double rollDrift = 0.0D;
 double yawDrift = 0.0D;
-double gPitch = 0.0;
+
+float gyroFahrenheit = 0.0;
 double gRoll = 0.0;
-double gYaw = 0.0;
+//double gYaw = 0.0;
 double gyroCumHeading = 0.0;
 double gyroHeading = 0;
 
@@ -276,13 +282,17 @@ double gmHeading = 0.0;
 double gmCumHeading = 0.0;
 double currentX = 0.0;
 double currentY = 0.0;
-int fixPosition = 0;
+double fixPosition = 0;
 double fixHeading = 0.0;
+double targetHeading = 0.0;
+
+int gyroX, gyroY, gyroZ, accelX, accelY, accelZ;
 
 // Speed and position variables
 long tickPositionRight = 0L;
 long tickPositionLeft = 0L;
-long tpDistanceDiff = 0L;
+long tickPositionDiff = 0L;
+double targetTickPositionDiff = 0.0D;
 long tickPosition;
 long coTickPosition;
 double tp6LpfCos = 0.0;
@@ -295,11 +305,16 @@ boolean isUpright = false;
 boolean isLifted = true;
 boolean isOnGround = false;
 boolean isHcActive = false; // Hand controller connected.
+unsigned int hcMsgTime = 0;
+boolean isBeaconTransmitted = false;
 boolean isPcActive = false; // PC connected
+unsigned int pcMsgTime = 0;
 boolean isRouteInProgress  = false; // Route in progress
 boolean isDumpingData = false; // Dumping data
 boolean isHoldHeading = false; // 
+boolean isSpin = false; // 
 boolean isStand = false; // 
+//boolean isHoverPowered = false;
 
 int standTPRight = 0;
 int standTPLeft = 0;
@@ -347,41 +362,21 @@ double hcX = 0.0;
 double hcY = 0.0;
 double pcX = 0.0;
 double pcY = 0.0;
-//double controllerX = 0.0; // +1.0 to -1.0 from controller
-//double controllerY = 0.0;  // Y value set by message from controller
-boolean isNewMessage = false;
+double controllerX = 0.0; // +1.0 to -1.0 from controller
+double controllerY = 0.0;  // Y value set by message from controller
 char message[100] = "";
-
-int gyroFahrenheit = 0;
-double gyroPitchRaw;  // Vertical plane parallel to wheels
-double gyroPitchRate;
-long gyroPitchRawSum;
-double oldGaPitch = 0.0;
-double gyroPitchDelta = 0.0;
-double gyroPitch = 0.0; // not needed
-double temperatureDriftPitch = 0.0D;
-double timeDriftPitch = 0.0;
-
-double gyroRollRaw = 0;
-double gyroRollRate;
-double gyroRoll = 0.0f;
-double accelRoll = 0.0f;
-double temperatureDriftRoll = 0.0D;
-double timeDriftRoll = 0.0;
 
 double gyroYawRaw = 0.0f;
 double gyroYawRate = 0.0f;
 double gyroYawAngle = 0.0f;
 double gyroYawRawSum = 0.0;
-double temperatureDriftYaw = 0.0D;
-double timeDriftYaw = 0.0;
+double timeDriftPitch = -30.8;
+double timeDriftYaw = -22.3;
 
-int gyroErrorX = 0;
-int gyroErrorY = 0;
-int gyroErrorZ = 0;
-
-int battVolt = 0; // battery 
+float battAVolt = 0.0; // battery 
+float battBVolt = 0.0; // battery 
 int tpDebug = 4241;
+int debugA;
 
 unsigned long tHc = 0L;  // Time of last Hc packet
 unsigned long tPc = 0L;  // Time of last Pc packet
@@ -430,7 +425,7 @@ boolean isPwData = false; // Send data after a sequence?
 int actionRight = 99;
 int actionLeft = 99;
 
-int tVal = 0;
+float tVal = 3.6;
 int uVal = 0;
 int vVal = 0;
 int wVal = 0;
@@ -491,11 +486,11 @@ double jumpFallXY;
 double routeTargetMagHeading = 0.0;
 char pBuf[100];
 
-unsigned int encoderRightdir = FWD;
+unsigned int encoderRightDir = FWD;
 int encoderRightPeriod;
 unsigned int encoderRightTime = 0;
 //double fpsRight = 0.0D;
-unsigned int encoderLeftdir = FWD;
+unsigned int encoderLeftDir = FWD;
 int encoderLeftPeriod;
 unsigned int encoderLeftTime = 0;
 //double fpsLeft = 0.0D;
@@ -508,9 +503,10 @@ unsigned int encoderLeftTime = 0;
  *
  *********************************************************/
 void setup() {
+  resetIMU();
   XBEE_SER.begin(57600);  // XBee, See bottom of this page for settings.
   BLUE_SER.begin(115200);  // Bluetooth 
-  SONAR_SER.begin(9600);   // Mini-pro sonar controller
+  SONAR_SER.begin(9600);  // Bluetooth 
   Serial.begin(115200); // for debugging output
 
   servoRight.attach(SERVO_R_PIN);
@@ -518,20 +514,24 @@ void setup() {
 
    
   pinMode(LED_PIN,OUTPUT);  // Status LED
-   
-  pinMode(BATT_LOGIC_PIN, INPUT);
-  pinMode(BATT_MOTOR_PIN, INPUT);
+  pinMode(LED_YE_PIN,OUTPUT);  // 
+  pinMode(IR_R_PIN,OUTPUT);  // To turn off IR led on right
+  pinMode(IR_L_PIN,OUTPUT);  // To turn off IR led on right
 
-  pinMode(SONAR_RIGHT_PIN, OUTPUT);
-  pinMode(SONAR_LEFT_PIN, OUTPUT);
-
-//  pinMode(FOOTSW_PIN, OUTPUT);
-//  digitalWrite(FOOTSW_PIN, HIGH); // Motors off
+  digitalWrite(LED_PIN, HIGH);
+  digitalWrite(LED_YE_PIN, HIGH);
+  digitalWrite(IR_R_PIN, LOW);
+  digitalWrite(IR_L_PIN, LOW);
   
-//  pinMode(SW1_PIN, INPUT_PULLUP);
-//  pinMode(SW2_PIN, INPUT_PULLUP);
-//  pinMode(SW3_PIN, INPUT_PULLUP);
-//  pinMode(SW4_PIN, INPUT_PULLUP);
+   
+//  pinMode(BATT_LOGIC_PIN, INPUT);
+//  pinMode(BATT_MOTOR_PIN, INPUT);
+
+  
+  pinMode(SW_R_PIN, INPUT_PULLUP);
+  pinMode(SW_L_PIN, INPUT_PULLUP);
+  pinMode(SW_LED_PIN, INPUT_PULLUP);
+  pinMode(GYRO_INTR_PIN, INPUT);
 
   pinMode(MOT_RIGHT_ENCA, INPUT);
   pinMode(MOT_RIGHT_ENCB, INPUT);
@@ -539,19 +539,7 @@ void setup() {
   pinMode(MOT_LEFT_ENCA, INPUT);
   pinMode(MOT_LEFT_ENCB, INPUT);
   pinMode(MOT_LEFT_ENCC, INPUT);
-
-  attachInterrupt(MOT_RIGHT_ENCA,  encoderIsrRightA, CHANGE);
-  attachInterrupt(MOT_RIGHT_ENCB, encoderIsrRightB, CHANGE);
-  attachInterrupt(MOT_RIGHT_ENCC, encoderIsrRightC, CHANGE);
-  attachInterrupt(MOT_LEFT_ENCA, encoderIsrLeftA, CHANGE);
-  attachInterrupt(MOT_LEFT_ENCB, encoderIsrLeftB, CHANGE);
-  attachInterrupt(MOT_LEFT_ENCC, encoderIsrLeftC, CHANGE);
-
-
-  digitalWrite(LED_PIN, HIGH);
-
-//  setSonar(SONAR_BOTH);
-  
+ 
   Serial.println("Serial & pins initialized.");
   angleInit6();
   Serial.println("Navigation initialized");
@@ -563,7 +551,6 @@ void setup() {
     cArray[i] = 4242;
     dArray[i] = i;
   }
-//  zeroGyro();
 //  Serial.println("Gyro zeroed out.");
 //  diagnostics();
   Serial.println("Diagnostics ignored.");
@@ -638,50 +625,9 @@ void bluePass() {
 
 
 
-/***********************************************************************.
- *  diagnostics()  If the yellow switch is pressed at startup, 
- *                 run diagnosics
- *                 every second which give a printout of the status of
- *                 all systems.
- ***********************************************************************/
-void diagnostics() {
-  unsigned long dTime1, dTime2;
-//  Serial.println(digitalRead(SW1_PIN));
-//  if (digitalRead(SW1_PIN) != LOW) return;
-  isDiagnostics = true;
-  Serial.println("Start diagnositics.");
-  
-  while (true) {
-    delay(1000);
-
-    // Accelerometer
-    dTime1 = micros();
-    readAccel(); 
-    Serial.print("uSec:"); Serial.print(micros() - dTime1); Serial.print("\t");
-    Serial.print("aPitch: "); Serial.print(aPitch); Serial.print("\t");
-    Serial.print("aRoll: "); Serial.print(aRoll); Serial.println();
-
-    // Gyro
-    dTime1 = micros();
-    readGyro();
-    Serial.print("uSec:"); Serial.print(micros() - dTime1); Serial.print("\t");
-    Serial.print("gyroPitchRate: "); Serial.print(gyroPitchRate); Serial.print("\t");
-    Serial.print("gyroRollRate: "); Serial.print(gyroRollRate); Serial.print("\t");
-    Serial.print("gyroYawRate: "); Serial.print(gyroYawRate); Serial.println();
-
-    Serial.println();
-  }
-}
-
-
 /*********************************************************
  *
  * Xbee settings
- *
- *     The XBee 900 hz modules are left in their 
- *     default state except that the baud rate is set to 
- *     57k and the destination addresses are set 
- *     to point to the other module.
  *
  *********************************************************/
 

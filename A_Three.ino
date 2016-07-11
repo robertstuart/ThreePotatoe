@@ -1,11 +1,11 @@
 /***********************************************************************.
  * -----  ------
  ***********************************************************************/
-double tp6Fps = 0.0f;
+double tp6SpeedError = 0.0;
+//double tp6Fps = 0.0f;
 double fpsCorrection = 0.0f;
 //double tp6LoopSec = 0.0f;
 double tp6LpfCosOld = 0.0;
-//double targetHeading = 0.0;
 double fpsLpfCorrectionOld = 0.0;
 double fpsLpfCorrection = 0.0;
 double tp6AngleError = 0.0;
@@ -13,46 +13,38 @@ double tp6TargetAngle = 0.0;
 double tp6Cos = 0.0; 
 double tp6Rotation = 0.0;
 double rotationCorrection = 0.0;
+int servoMsR, servoMsL;
 
 /***********************************************************************.
  *  aThreeRun() 
  ***********************************************************************/
 void aThreeRun() {
   unsigned int subCycle = 0;
-  boolean toggle = false;
   
   timeMicroseconds = gyroTrigger = micros();
   timeMilliseconds = timeMicroseconds / 1000;
   tickPositionRight = tickPositionLeft = tickPosition = 0L;
+  hoverPower(true);
+  delay(20);
+  readGyro();
+  setHeading(0.0D);
+  setNavigation();
   delay(200);
-//  readCompass();
-//  setHeading(0.0D);
-//  resetTicks();
-  servoRight.writeMicroseconds(SERVO_CENTER_RIGHT);
-  servoLeft.writeMicroseconds(SERVO_CENTER_LEFT);
+  servoRight.writeMicroseconds(servoCenterR);
+  servoLeft.writeMicroseconds(servoCenterL);
+  targetHeading = gyroHeading;
   while(true) { // main loop
     commonTasks();
     // Do the timed loop
     timeMicroseconds = micros();
     timeMilliseconds = timeMicroseconds / 1000;
-    if (timeMicroseconds > gyroTrigger) {
-      gyroTrigger +=  2400; // ~400/sec
+    if (digitalRead(GYRO_INTR_PIN) == HIGH) {   
       subCycle++;
-      readGyro();
-      if ((subCycle % 16) == 3) {  // 25/sec
-        aThreePotatoe();
-//Serial.println(gaPitch);
-        sendThreeStatus();
-        toggle = !toggle;
-        if (toggle)  digitalWrite(LED_PIN, HIGH);
-        else digitalWrite(LED_PIN, LOW);
-//      setNavigation();
-      }
-      if ((subCycle % 4)  == 1) readAccel();  // 100/sec
-//      aTp6(); 
-//      sendTp6Status();
-//      safeAngle();
-//      switches();
+      readGyro();                                    // 104/sec
+      readAccel();
+      setNavigation();
+      aThreePotatoe();
+      sendLog();
     } // end timed loop
   }
 }
@@ -62,201 +54,189 @@ void aThreeRun() {
 /***********************************************************************.
  *  aThreePotatoe() 
  ***********************************************************************/
+ #define LPF_SE 0.05  // damping this doesn't seem to reduce oscillation
 void aThreePotatoe() {
+  static double lpfSpeedErrorOld = 0;
+  double lpfSpeedError = 0;
   readSpeed();
-  // compute the Center of Oscillation Speed (COS)
-  tp6Rotation = 3.6 * (-gyroPitchDelta); // 3.6 *********************************************************************************
-  tp6Cos = wheelSpeedFps + tp6Rotation; // subtract rotation 
+  tp6Rotation = 0.75 * gyroPitchDelta; // Original
+  tp6Cos = wheelSpeedFps - tp6Rotation; // subtract rotation 
   tp6LpfCos = (tp6LpfCosOld * (1.0 - 0.2))  + (tp6Cos  * 0.2); // smooth it out a little (0.2) ********************
-//  tp6LpfCos = (tp6LpfCosOld * (1.0 - 0.05)) + (tp6Cos * 0.05); // smooth it out a little (0.2)
-  tp6LpfCosAccel = tp6LpfCos - tp6LpfCosOld;
   tp6LpfCosOld = tp6LpfCos;
 
-   // Do new calculation.  Used for including ticks in pitch estimation.
-  rotation2 = -tgPitchDelta * 7.4;
-  cos2 = wheelSpeedFps + rotation2;
-  lpfCos2 = (lpfCosOld2 * .9) + (cos2 * (1.0D - .9));
-  lpfCosOld2 = lpfCos2;
-
-//  if (isRouteInProgress) {
-//    tp6ControllerSpeed = routeFps;
-//  }
-//  else {
-    tp6ControllerSpeed = hcY * SPEED_MULTIPLIER; 
-//  }
-
-  // find the speed error
-  double tp6SpeedError = tp6ControllerSpeed - tp6LpfCos;
-//  double tp6SpeedError = tp6ControllerSpeed - lpfCos2;
-
-  // compute a weighted angle to eventually correct the speed error
-//  if (!isAngleControl) { // TargetAngle set by route() routines?
-    tp6TargetAngle = -(tp6SpeedError * 1.0); //************ Speed error to angle *******************
-//  }
+  if (isRouteInProgress) {
+    tp6ControllerSpeed = routeFps;
+  } else {
+    tp6ControllerSpeed = hcY * 10.0;
+  }
   
-  // Compute maximum angles for the current wheel speed and enforce limits.
-//  float fwdA = wheelSpeedFps - 13.0;
-//  float bkwdA = wheelSpeedFps + 13.0;
-//  if (tp6TargetAngle < fwdA)  tp6TargetAngle = fwdA;
-//  if (tp6TargetAngle > bkwdA) tp6TargetAngle = bkwdA;
-////  double tp6TargetAngle = tp6SpeedError * 2.0; //********** Speed error to angle *******
+  tp6SpeedError = tp6LpfCos - tp6ControllerSpeed;
+
+  // LPF the target angle to reduce seek oscillation
+  lpfSpeedError = (lpfSpeedErrorOld * (1.0 - LPF_SE)) + (tp6SpeedError * LPF_SE);
+  lpfSpeedErrorOld = lpfSpeedError;
   
-  // Compute angle error and weight factor
-////  tp6AngleError = tp6TargetAngle - gaPitch + rotationCorrection;  //** 2
-//  tp6AngleError = tp6TargetAngle - gaPitch;  //** 2
-//  fpsCorrection = tp6AngleError * 0.18; //******************* Angle error to speed *******************
-////  speedCorrection = tp6AngleError * 0.18; //******************* Angle error to speed *******************
-////  fpsLpfCorrection = (fpsLpfCorrectionOld * (1.0f - 0.1))  + (speedCorrection * 0.1);
-//  fpsLpfCorrection = (fpsLpfCorrectionOld * (1.0f - (0.05)))  + (fpsCorrection * (0.05));
-//  fpsLpfCorrectionOld = fpsLpfCorrection;
+  tp6TargetAngle = lpfSpeedError * 2.5; //************ Speed error to angle *******************
 
-//  // Add the angle error to the base speed to get the target speed.
-////  tp6Fps = fpsLpfCorrection + tp6LpfCos;
-//  tp6Fps = fpsLpfCorrection + lpfCos2;
+  if (isRouteInProgress) {
+    route();
+  } else {
+    steer();
+  }
 
-//  // These routines set the steering values, amoung other things.
-//  if (isRouteInProgress) route();
-//  else if (isStand) standSteer();
-//  else tp6Steer(tp6Fps);
-//
-//  setTargetSpeedRight(tp6FpsRight);
-//  setTargetSpeedLeft(tp6FpsLeft);
-  int rightVal = ((int) ((tp6TargetAngle * 20.0) + (hcX * 100.0))) + SERVO_CENTER_RIGHT;
-  int leftVal = ((int) ((-tp6TargetAngle * 20.0) + (hcX * 100.0))) + SERVO_CENTER_LEFT;
-Serial.print(fpsRight); Serial.print("\t");
-Serial.print(fpsLeft); Serial.print("\t");
-Serial.print(rightVal); Serial.print("\t");
-Serial.print(leftVal); Serial.print("\t");
-Serial.println();
-  servoRight.writeMicroseconds(rightVal);
-  servoLeft.writeMicroseconds(leftVal);
-
+  setServos(servoMsR, servoMsL);
 } // end aTp6() 
 
 
 
 /***********************************************************************.
- *  sendThreeStatus() Called 400 time/sec.
+ *  sendLog() Called 104 time/sec.
  ***********************************************************************/
-void sendThreeStatus() {
-  static unsigned int loopc = 0;
-  static unsigned int loopd = 0;
-  static float marker = 1.1;
-  loopc = ++loopc % 40; // 10/sec loop.
-  loopd = ++loopd % 400; // 1/sec loop.
-  if (isDumpingData) {
-    if ((loopc % 4) == 0)  dumpData();
+void sendLog() {
+  static unsigned int logLoop = 0;
+
+  logLoop++;
+  
+  if (isDumpingData) {  // 
+    if ((logLoop % 4) == 0) {
+      dumpData();
+    }
   }
-  if ((loopc == 0)  || (loopc == 20))  { // Status 20/sec
-    sendStatusXBeeHc(); 
-    sendStatusBluePc();
-    isNewMessage = false;
+
+  if ((logLoop % 52) == 0) {
+    log2PerSec();
   }
-  else if ((loopc == 10) || (loopc == 30)) { // Logging & debugging 20/sec
+//  if ((logLoop % 10) == 0) {  // 10/sec 
+//    Serial.print(targetHeading); Serial.print("\t"); Serial.println(gyroHeading);  
+//  }
+  if ((logLoop % 5) == 2) { // 20/sec
+    routeLog();
 //    log20PerSec();
-//  sprintf(message,"%7.3f %7.3f %7.3f %7.3f %7d %7.3f", 
-//          xVec, yVec, zVec, tmCumHeading, mY, magHeading);
-//   sendBMsg(SEND_MESSAGE, message);
-//    if (isRouteInProgress) routeLog();
-//    routeLog();
-  } else if (loopc == 5) {
-    Serial.println(gaPitch);  
   }
-//  if (loopd == 0) log1PerSec();
-//  log400PerSec();
 }
 
 void log20PerSec() {
-//  snprintf(pBuf, sizeof(pBuf), "%5d", (int) gyroCumHeading);
-//  sendBMsg(SEND_MESSAGE, pBuf); 
-
-  if (!isRouteInProgress) return;
   addLog(
-        (long) coTickPosition,
-        (short) (currentMapCumHeading * 10.0),
-        (short) (turnTargetCumHeading * 10.0),
+        (long) (timeMilliseconds),
+        (short) (targetHeading * 100.0),
+        (short) (gyroHeading * 100.0),
+        (short) (0 * 100.0),
         (short) (wheelSpeedFps * 100.0),
-        (short) (routeStepPtr),
-        (short) (currentMapLoc.x * 100.0),
-        (short) (currentMapLoc.y * 100.0)
+        (short) (0 * 100.0),
+        (short) (0 * 100.0)
    );
 }
 
 void log400PerSec() {
-//  if (!isRouteInProgress) return;
   addLog(
         (long) (0),
-        (short) (currentMapLoc.y * 100.0),
-        (short) (tp6LpfCos * 100.0),
+        (short) (routeTargetBearing * 100.0),
+        (short) (routeTargetBearing * 100.0),
         (short) (gaPitch * 100.0),
         (short) (wheelSpeedFps * 100.0),
-        (short) (stopDist * 100.0),
-        (short) (routeStepPtr)
+        (short) (tp6LpfCos * 100.0),
+        (short) (tp6TargetAngle * 100.0)
    );
 }
         
-void log1PerSec() {
-  static unsigned long t;
-  unsigned long t2 = millis();
-  int tickDiff = tickPositionLeft - tickPositionRight;
-  double tickA = ((double) tickDiff) / TICKS_PER_DEGREE_YAW;
-  sprintf(message, "tickDiff:%5d     tickAngle:%6.2f", tickDiff , tickA);
-  sendBMsg(SEND_MESSAGE, message); 
+void log2PerSec() {
+  static unsigned int t1 = 0;
+  unsigned int t2 = millis();
+    sprintf(message, "Time: %d", t2 - t1);
+    sendBMsg(SEND_MESSAGE, message);
+    t1 = t2;
 }
 
 /***********************************************************************.
- *  tp6Steer() 
+ *  steer() 
  ***********************************************************************/
-void tp6Steer(double fps) {
-  double speedAdjustment;
-//  if (isSpin) {
-//    speedAdjustment = hcX * 10.0D;
+void steer() {
+//  targetTickPositionDiff += controllerX * 0.3;
+//  if (digitalRead(SW_R_PIN) == LOW) targetTickPositionDiff += 0.1;
+//  if (digitalRead(SW_L_PIN) == LOW) targetTickPositionDiff -= 0.1;
+//  float  steerVal = ((float) (((int) targetTickPositionDiff) - tickPositionDiff)) * 0.05;
+ 
+  if (digitalRead(SW_R_PIN) == LOW) targetHeading += 0.25;
+  if (digitalRead(SW_L_PIN) == LOW) targetHeading -= 0.25;
+  targetHeading += controllerX * 1.0;
+  double aDiff = rangeAngle(targetHeading - gyroHeading);
+  float steerVal = aDiff * 5.0;
+//  steerVal = constrain(steerVal, -400.0, 400.0);
+
+  servoMsR = ((int) ((-tp6TargetAngle * 50.0) + steerVal)) + servoCenterR;
+  servoMsL = ((int) ((tp6TargetAngle * 50.0) + steerVal)) + servoCenterL;  
+
+//  static int loop = 0;
+//  loop++;
+//  if ((loop %100) == 0) {
+//    Serial.print(targetHeading); Serial.print("\t"); Serial.println(gyroHeading);
 //  }
-//  else {
-    speedAdjustment = (((1.0 - abs(hcY)) * 1.5) + 0.5) * hcX; 
-//  }
-  tp6FpsLeft = tp6Fps + speedAdjustment;
-  tp6FpsRight = tp6Fps - speedAdjustment;
 }
 
 
+
+/***********************************************************************.
+ *  setServos() Prevent rapic changes in servo
+ ***********************************************************************/
+#define SERVO_MAX 2.0
+void setServos(int newR, int newL) {
+  static float r = servoCenterR;
+  static float l = servoCenterL;
+
+//  // Right value
+//  if ((newR - r) > SERVO_MAX)       r += SERVO_MAX;
+//  else if ((r - newR) > SERVO_MAX)  r -= SERVO_MAX;
+//  else r = newR;
+//
+//  // Left value
+//  if ((newL - l) > SERVO_MAX)       l += SERVO_MAX;
+//  else if ((l - newL) > SERVO_MAX)  l -= SERVO_MAX;
+//  else l = newL;
+r = newR;
+l = newL;
+  if (isRunReady) {
+    servoRight.writeMicroseconds((int) r);
+    servoLeft.writeMicroseconds((int) l);
+  }
+//Serial.print(r); Serial.print("\t"); Serial.println(newR);
+}
 
 /************************************************************************
  *  stand() Keep position from base tickPosition
  ************************************************************************/
 double standFps() {
-  float joyY = (abs(pcY) > abs(hcY)) ? pcY : hcY;
-  routeFps = 0.0;
-  
-  if (abs(joyY) > 0.05) {
-    standTPRight = tickPositionRight;
-    standTPLeft = tickPositionLeft;
-    return(joyY * 1.0);
-  } 
-  else {
-    int targetPos = standTPRight + standTPLeft;
-    int currentPos = tickPositionRight + tickPositionLeft;
-    return((float) ((targetPos - currentPos)) * 0.0005);
-  }
-}
-
-void standSteer() {
-  float headingSpeedAdjustment = 0.0;
-  float joyX = (abs(pcX) > abs(hcX)) ? pcX : hcX;
-  
-  if (abs(joyX) > 0.05) {
-    headingSpeedAdjustment = joyX * 0.3;
-    standTPRight = tickPositionRight;
-    standTPLeft = tickPositionLeft;
-  }
-  else {
-    int targetTD = standTPRight - standTPLeft;
-    int currentTD = tickPositionRight - tickPositionLeft;
-    headingSpeedAdjustment = ((float) (currentTD - targetTD)) * 0.01;
-  }
-
-  tp6FpsRight = tp6Fps - headingSpeedAdjustment;
-  tp6FpsLeft = tp6Fps + headingSpeedAdjustment;
+//  float joyY = (abs(pcY) > abs(hcY)) ? pcY : hcY;
+//  routeFps = 0.0;
+//  
+//  if (abs(joyY) > 0.05) {
+//    standTPRight = tickPositionRight;
+//    standTPLeft = tickPositionLeft;
+//    return(joyY * 1.0);
+//  } 
+//  else {
+//    int targetPos = standTPRight + standTPLeft;
+//    int currentPos = tickPositionRight + tickPositionLeft;
+//    return((float) ((targetPos - currentPos)) * 0.0005);
+//  }
+//}
+//
+//void standSteer() {
+//  float headingSpeedAdjustment = 0.0;
+//  float joyX = (abs(pcX) > abs(hcX)) ? pcX : hcX;
+//  
+//  if (abs(joyX) > 0.05) {
+//    headingSpeedAdjustment = joyX * 0.3;
+//    standTPRight = tickPositionRight;
+//    standTPLeft = tickPositionLeft;
+//  }
+//  else {
+//    int targetTD = standTPRight - standTPLeft;
+//    int currentTD = tickPositionRight - tickPositionLeft;
+//    headingSpeedAdjustment = ((float) (currentTD - targetTD)) * 0.01;
+//  }
+//
+//  tp6FpsRight = tp6Fps - headingSpeedAdjustment;
+//  tp6FpsLeft = tp6Fps + headingSpeedAdjustment;
 }
 
 

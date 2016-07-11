@@ -1,3 +1,107 @@
+// From driveway to street and back
+String driveway1[] = {
+  "N Driveway 1",
+  "KR    5,30  90",
+  "HG",
+  "GX    8,30  1",    //  
+  "GX   30,22  4",    //  
+  "T    35,28  4 8",  // 
+  "GY   35,28  5",    //  
+  "T    11,35  5 8",
+  "GX   11,30  6",    // 
+  "F"
+};
+// From driveway to street and back
+String street1[] = {
+  "N Street 1",
+  "KR    5,30  90",
+  "HG",
+  "GX    8,30  1",    //  
+  "GX   35,25  4",
+  "GX   65,25  3",    //  Enter the street
+  "T    70,50  4 8",  //  Turn left up the street
+  "GY   70,50  7",    //  
+  "T    95,80  7 8",
+  "GY   95,80  7",    // 11
+  "T    84,95  4 8",  // 12  Turn left toward Mensch 
+  "GX   84,95  4",
+  "T    50,30  4 8",  // 14 Left to return
+  "GY   50,30  4",
+  "T    35,30  4 8",
+  "GX   35,30  3",    // 17 Up curb
+  "GX   10,30  5",
+  "F"
+};
+
+//// From driveway to street and back
+//String street1[] = {
+//  "N Street 1",
+//  "KR 5,30  180",
+//  "HG",
+//  "GY  5,29.3  1",    //  4
+//  "GY  5,22  4",    //  4
+//  "T  35,23  4 8",  //  5   Head out driveway
+//  "GX 35,23  4",
+//  "GX 65,23  3",    //  7   Enter the street
+//  "T  70,50  4 8",  //  8   Turn left up the street
+//  "GY 70,50  7",    //  9
+//  "T  95,80  7",
+//  "GY 95,80  7",    // 11
+//  "T  84,95  4 8",  // 12  Turn left toward Mensch 
+//  "GX 84,95  4",
+//  "T  50,30  4 8",  // 14 Left to return
+//  "GY 50,30  4",
+//  "T  35,30  4 8",
+//  "GX 35,30  3",    // 17 Up curb
+//  "GX 10,35  5",
+//  "T   5,10  5 8",  
+////  "GY  5,30  4",
+//  "F"
+//};
+
+
+// Turns
+String turns1[] = {
+  "N Turns 1",
+  "KR  20,0    0",
+  "HG",
+  "GY  20,5    3",
+  "T   12,8    3 5.5",
+  "GX  12,8    3",
+  "F"
+};
+
+// Church
+String church1[] = {
+  "N Church 1",
+  "A",
+  "HG",
+  "GY   0,50   4",     // Go south
+  "T  100,55   4  8",
+  "GX 100,55   4",     // Go west toward church
+  "T  105,20   4  8",
+  "GY 105,20   4",     // Go North
+  "T   50,15   4  8",
+  "GX  50,15   4",     // Go East
+  "T   45,-50  4  8",
+  "GY  45,-50  4",     // Go North
+  "T    5,-55  4  8",
+  "GX   5,-55  4",     // Go east
+  "T    0,0    4  8",
+  "GY   0,0    4",     // Go south
+  "F"
+};
+
+// Straight
+String straight1[] = {
+  "N Straight 1",
+  "A",
+  "HG",
+  "GY 0,0.5 3",
+  "TR 90 3 5",
+  "F"
+};
+
 // Test chain-link fence
 String fenceRight[] = {
   "N Fence right",
@@ -653,7 +757,7 @@ String rtA[] = {
 
 
 String *routeTable[] = {
-  WR, WL, house3f, house3h, house2, basement1, survey, smallSquare};
+ street1, driveway1};
 
 int routeTablePtr = 0;
 boolean isLoadedRouteValid = true;
@@ -700,7 +804,9 @@ void startRoute() {
   while (true) {
     if (!interpretRouteLine(getNextStepString())) {
       isRouteInProgress = false;
-      sprintf(message, "Error step %d!", routeStepPtr - 1); isNewMessage = true;
+      sprintf(message, "Error step %d!", routeStepPtr - 1); 
+      sendBMsg(SEND_MESSAGE, message);
+      sendXMsg(SEND_MESSAGE, message);
       return;
     }
     if (!isRouteInProgress) break;
@@ -712,10 +818,19 @@ void startRoute() {
   coPtr = coEnd = 0;
   
   setHeading(0.0D);
-  resetTicks();
   currentMapLoc.x = 0.0D;
   currentMapLoc.y = 0.0D;
   coSetLoc = currentMapLoc;
+}
+
+
+
+/************************************************************************
+ *  stopRoute()
+ ************************************************************************/
+void stopRoute() {
+  isRouteInProgress = false;
+  setHeading(0.0);
 }
 
 
@@ -731,6 +846,7 @@ void loadRouteLine(String routeLine) {
   if (ret == false) {
     sprintf(message, "Error on line: %d", loadStepPtr +1);
     sendBMsg(SEND_MESSAGE, message); 
+    Serial.println(message);
     loadStepPtr = 0;
     isLoadedRouteValid = false;
     return;

@@ -50,12 +50,15 @@ void commonTasks() {
   timeMilliseconds = timeMicroseconds / 1000;
   readXBee();  // Read commands from PC or Hand Controller
   readBluetooth();
-//  readSonar();
-//  battery();
+  readSonar();
+  switches();
+  blink();
+  battery();
+  beacon();
+  //  hoverPower();
   controllerConnected();
-//  liftJump();
-//  gyroTemperature();
 }
+
 
 
 /*********************************************************
@@ -86,6 +89,33 @@ void safeAngle() {
 
 /**************************************************************************.
  *
+ * hoverPower()
+ *              Disconnect and reconnect interrupts whenever
+ *              the hoverboard is powered up or down.
+ *
+ **************************************************************************/
+void hoverPower(boolean isOn) {
+  //  int pwr = analogRead(HOVER_POWER_PIN); // 948 indicates power is on
+  if (isOn) {
+    attachInterrupt(MOT_RIGHT_ENCA,  encoderIsrRightA, CHANGE);
+    attachInterrupt(MOT_RIGHT_ENCB, encoderIsrRightB, CHANGE);
+    attachInterrupt(MOT_RIGHT_ENCC, encoderIsrRightC, CHANGE);
+    attachInterrupt(MOT_LEFT_ENCA, encoderIsrLeftA, CHANGE);
+    attachInterrupt(MOT_LEFT_ENCB, encoderIsrLeftB, CHANGE);
+    attachInterrupt(MOT_LEFT_ENCC, encoderIsrLeftC, CHANGE);
+  } else {
+    detachInterrupt(MOT_RIGHT_ENCA);
+    detachInterrupt(MOT_RIGHT_ENCB);
+    detachInterrupt(MOT_RIGHT_ENCC);
+    detachInterrupt(MOT_LEFT_ENCA);
+    detachInterrupt(MOT_LEFT_ENCB);
+    detachInterrupt(MOT_LEFT_ENCC);
+  }
+}
+
+
+/**************************************************************************.
+ *
  * controllerConnected()
  *
  *********************************************************/
@@ -103,9 +133,40 @@ void battery() {
   static unsigned long batteryTrigger = 0L;
   if (timeMilliseconds > batteryTrigger) {
     batteryTrigger = timeMilliseconds + 1000;  // 1 per second
-    battVolt = (1000 * analogRead(BATT_LOGIC_PIN)) / 451;
+    battAVolt = ((float) analogRead(BATT_A_PIN)) * 0.00922;
+    battBVolt = ((float) analogRead(BATT_B_PIN)) * 0.0513;
+//Serial.print(battAVolt); Serial.print("\t"); Serial.println(battBVolt);
   }
 }
+
+
+
+/**************************************************************************.
+ * beacon()
+ *      Send TwoPotatoe an XY beacon.  If the hc is active, send it 30ms
+ *      after the hc message.  If it is not active, send the beacon every
+ *      100ms.
+ *      
+ *      Also, manage the state of the ??Active variables.
+ **************************************************************************/
+void beacon() {
+  static unsigned int beaconTime = 0;
+  if ((hcMsgTime + 110) < timeMilliseconds) isHcActive = false;   
+  if ((pcMsgTime + 110) < timeMilliseconds) isPcActive = false;   
+
+  if (isHcActive) {
+    if((!isBeaconTransmitted) && ((hcMsgTime + 30) > timeMilliseconds)) {
+      isBeaconTransmitted = true;
+      sendBeacon();
+    }
+  } else {
+    if ((beaconTime + 100) < timeMilliseconds) {
+      beaconTime = timeMilliseconds;
+      sendBeacon();
+    }
+  }
+}
+
 
 
 /**************************************************************************.
@@ -113,25 +174,30 @@ void battery() {
  *      Toggle TP_STATE_RUN_READY on yellow switch.  1 sec dead period.
  **************************************************************************/
 void switches() {
-//  static int yeTrigger = 0;
-//  static int buTrigger = 0;
-//  static boolean buState = false;
-//  String s = "";
-//  if (digitalRead(YE_SW_PIN) == LOW) {
-//    if (timeMilliseconds > yeTrigger) {
-//      yeTrigger = timeMilliseconds + 1000;
-//      isRunReady = isRunReady ? false : true;
-//    }
-//  }
-//  if (digitalRead(BU_SW_PIN) == LOW) {
-//    if (timeMilliseconds > buTrigger) {
-//      buTrigger = timeMilliseconds + 1000;
-//      buState = !buState;
-//    }
-//  }
+  static int pressTimer = 0;
+  static int releaseTime = 0;
+  static int dbPressTime = 0;
+  static boolean dbBuState = false;
+  static boolean oldDbBuState = false;
+
+  // Debounce
+  boolean buState = digitalRead(SW_LED_PIN) == LOW;
+  if (buState) pressTimer = timeMilliseconds;
+  if ((timeMilliseconds - pressTimer) > 50) dbBuState = false;
+  else dbBuState = true;
+
+  // Press
+  if ((dbBuState) && (!oldDbBuState))   dbPressTime = timeMilliseconds;
+  
+  // All actions on release
+  if ((!dbBuState) && (oldDbBuState)) {
+    if ((timeMilliseconds - dbPressTime) > 1000) {
+      if (!isRouteInProgress) startRoute();
+    } else if (isRouteInProgress) stopRoute();
+    else run(!isRunReady);
+  }
+  oldDbBuState = dbBuState;
 }
-
-
 
 
 
@@ -180,6 +246,13 @@ void readSonar() {
  *           Called for every sonar reading.
  **************************************************************************/
 void doSonar(float distance, int isRight) {
+if (!isRight) {
+  float d = distance - 0.32;
+  int z = (int) (12 * d);
+  Serial.print(d);
+  for (int i = 0; i < z; i++) Serial.print(" ");
+  Serial.println("*");  
+}
     
   // Collect data for least squares calculation.
   if (isGXAxis) {
@@ -202,36 +275,9 @@ void doSonar(float distance, int isRight) {
     sonarLeftArrayPtr = ++sonarLeftArrayPtr % SONAR_ARRAY_SIZE;
     sonarLeft = distance;
   }
-
-  if (isRouteInProgress) routeLog();
 }
 
-void setSonar(int mode) {
-  int r, l;
-  sonarMode = mode;
-  if (mode == SONAR_RIGHT) {
-    r = HIGH;
-    l = LOW;
-  } else if (mode == SONAR_LEFT) {
-    r = LOW;
-    l = HIGH;
-  } else if (mode == SONAR_BOTH) {
-    r = HIGH;
-    l = HIGH;
-  } else {
-    r = LOW;
-    l = LOW;
-  }
-  digitalWrite(SONAR_RIGHT_PIN, r);
-  digitalWrite(SONAR_LEFT_PIN, l);
-}
 
-void setTargetSpeedRight(float speed) {
-  
-}
-void setTargetSpeedLeft(float speed) {
-  
-}
 
 /**************************************************************************.
  *  rangeAngle() Set angle value between -180 and +180
@@ -241,6 +287,45 @@ double rangeAngle(double head) {
   while (head <= -180.0D) head += 360.0D;
   return head;
 }
+
+/**************************************************************************.
+ *  blink()
+ **************************************************************************/
+void blink() {
+  const unsigned int SLOW_BLINK = 500; 
+  const unsigned int FAST_BLINK = 80; 
+  static unsigned int blinkTrigger = 0;
+  static boolean toggle = false;
+  if (timeMilliseconds > blinkTrigger) {
+    int t = (isRouteInProgress) ? SLOW_BLINK : FAST_BLINK;
+    blinkTrigger = t + timeMilliseconds;
+    toggle = !toggle;
+    digitalWrite(LED_PIN, toggle);
+    digitalWrite(LED_YE_PIN, toggle);
+  }
+}
+
+void run(boolean b) {
+    isRunReady = b;
+    motors(b);
+}
+
+
+/**************************************************************************.
+ *  motors() Turn the motors on and off by turning the
+ *           LEDs on and off in the foot switch.
+ **************************************************************************/
+void motors(boolean b) {
+  if (b) {
+    digitalWrite(IR_R_PIN, HIGH);
+    digitalWrite(IR_L_PIN, HIGH);
+  } else {
+    digitalWrite(IR_R_PIN, LOW);
+    digitalWrite(IR_L_PIN, LOW);
+  }
+}
+
+
 
 
 /**************************************************************************.
@@ -265,7 +350,7 @@ void encoderIsrRightA() {
   static unsigned int lastTime = 0;
   int dir;
   unsigned int t = micros();
-  unsigned int ti = t - lastTime; 
+  unsigned int ti = t - lastTime;
   if (ti < 100) return;
   lastTime = t;
   boolean encA = (!!(g_APinDescription[MOT_RIGHT_ENCA].pPort -> PIO_PDSR & g_APinDescription[MOT_RIGHT_ENCA].ulPin)) ? true : false;
@@ -277,28 +362,28 @@ void encoderIsrRightA() {
   else if ( encA &&  encB && !encC) dir = FWD;
   else if (!encA && !encB &&  encC) dir = FWD;
   else dir = DIR_ERROR;
-  
+
   noInterrupts();
-   encoderRightdir = dir;
-  encoderRightPeriod = encoderRightTime - t;;
+  encoderRightDir = dir;
+  encoderRightPeriod = t - encoderRightTime;
   encoderRightTime = t;
   interrupts();
-  ti = ti / 1000;
-  int bin = encA ? 881 : 111;
-//  addLog(t, ti, bin, 0, 0, 0, 0);  
+
+  if (dir == FWD) tickPositionRight++;
+  else if (dir == BKWD) tickPositionRight--;
 }
 
 void encoderIsrRightB() {
   static unsigned int lastTime = 0;
   int dir;
   unsigned int t = micros();
-  unsigned int ti = t - lastTime; 
+  unsigned int ti = t - lastTime;
   if (ti < 100) return;
   lastTime = t;
   boolean encA = (!!(g_APinDescription[MOT_RIGHT_ENCA].pPort -> PIO_PDSR & g_APinDescription[MOT_RIGHT_ENCA].ulPin)) ? true : false;
   boolean encB = (!!(g_APinDescription[MOT_RIGHT_ENCB].pPort -> PIO_PDSR & g_APinDescription[MOT_RIGHT_ENCB].ulPin)) ? true : false;
-  boolean encC = (!!(g_APinDescription[MOT_RIGHT_ENCC].pPort -> 
-  PIO_PDSR & g_APinDescription[MOT_RIGHT_ENCC].ulPin)) ? true : false;
+  boolean encC = (!!(g_APinDescription[MOT_RIGHT_ENCC].pPort ->
+                     PIO_PDSR & g_APinDescription[MOT_RIGHT_ENCC].ulPin)) ? true : false;
 
   if (      encA &&  encB && !encC) dir = BKWD;
   else if (!encA && !encB &&  encC) dir = BKWD;
@@ -307,13 +392,13 @@ void encoderIsrRightB() {
   else dir = DIR_ERROR;
 
   noInterrupts();
-  encoderRightdir = dir;
-  encoderRightPeriod = encoderRightTime - t;;
+  encoderRightDir = dir;
+  encoderRightPeriod = t - encoderRightTime;
   encoderRightTime = t;
   interrupts();
-  ti = ti / 1000;
-  int bin = encB ? 882 : 112;
-//  addLog(t, 0, 0, ti, bin, 0, 0);  
+
+  if (dir == FWD) tickPositionRight++;
+  else if (dir == BKWD) tickPositionRight--;
 }
 
 
@@ -321,7 +406,7 @@ void encoderIsrRightC() {
   static unsigned int lastTime = 0;
   int dir;
   unsigned int t = micros();
-  unsigned int ti = t - lastTime; 
+  unsigned int ti = t - lastTime;
   if (ti < 100) return;
   lastTime = t;
   boolean encA = (!!(g_APinDescription[MOT_RIGHT_ENCA].pPort -> PIO_PDSR & g_APinDescription[MOT_RIGHT_ENCA].ulPin)) ? true : false;
@@ -335,20 +420,20 @@ void encoderIsrRightC() {
   else  dir = DIR_ERROR;
 
   noInterrupts();
-  encoderRightdir = dir;
-  encoderRightPeriod = encoderRightTime - t;;
+  encoderRightDir = dir;
+  encoderRightPeriod = t - encoderRightTime;;
   encoderRightTime = t;
   interrupts();
-  ti = ti / 1000;
-  int bin = encC ? 883 : 113;
-//  addLog(t, 0, 0, 0, 0, ti, bin);  
+
+  if (dir == FWD) tickPositionRight++;
+  else if (dir == BKWD) tickPositionRight--;
 }
 
 void encoderIsrLeftA() {
   static unsigned int lastTime = 0;
   int dir;
   unsigned int t = micros();
-  unsigned int ti = t - lastTime; 
+  unsigned int ti = t - lastTime;
   if (ti < 100) return;
   lastTime = t;
   boolean encA = (!!(g_APinDescription[MOT_LEFT_ENCA].pPort -> PIO_PDSR & g_APinDescription[MOT_LEFT_ENCA].ulPin)) ? true : false;
@@ -360,22 +445,22 @@ void encoderIsrLeftA() {
   else if ( encA &&  encB && !encC) dir = BKWD;
   else if (!encA && !encB &&  encC) dir = BKWD;
   else dir = DIR_ERROR;
-  
+
   noInterrupts();
-  encoderLeftdir = dir;
-  encoderLeftPeriod = encoderLeftTime - t;;
+  encoderLeftDir = dir;
+  encoderLeftPeriod = t - encoderLeftTime;
   encoderLeftTime = t;
   interrupts();
-  ti = ti / 1000;
-  int bin = encA ? 881 : 111;
-  addLog(t, ti, bin, 0, 0, 0, 0);  
+
+  if (dir == FWD) tickPositionLeft++;
+  else if (dir == BKWD) tickPositionLeft--;
 }
 
 void encoderIsrLeftB() {
   static unsigned int lastTime = 0;
   int dir;
   unsigned int t = micros();
-  unsigned int ti = t - lastTime; 
+  unsigned int ti = t - lastTime;
   if (ti < 100) return;
   lastTime = t;
   boolean encA = (!!(g_APinDescription[MOT_LEFT_ENCA].pPort -> PIO_PDSR & g_APinDescription[MOT_LEFT_ENCA].ulPin)) ? true : false;
@@ -389,20 +474,20 @@ void encoderIsrLeftB() {
   else dir = DIR_ERROR;
 
   noInterrupts();
-  encoderLeftdir = dir;
-  encoderLeftPeriod = encoderLeftTime - t;;
+  encoderLeftDir = dir;
+  encoderLeftPeriod = t - encoderLeftTime;
   encoderLeftTime = t;
   interrupts();
-  ti = ti / 1000;
-  int bin = encB ? 882 : 112;
-  addLog(t, 0, 0, ti, bin, 0, 0);  
+
+  if (dir == FWD) tickPositionLeft++;
+  else if (dir == BKWD) tickPositionLeft--;
 }
 
 void encoderIsrLeftC() {
   static unsigned int lastTime = 0;
   int dir;
   unsigned int t = micros();
-  unsigned int ti = t - lastTime; 
+  unsigned int ti = t - lastTime;
   if (ti < 100) return;
   lastTime = t;
   boolean encA = (!!(g_APinDescription[MOT_LEFT_ENCA].pPort -> PIO_PDSR & g_APinDescription[MOT_LEFT_ENCA].ulPin)) ? true : false;
@@ -416,13 +501,13 @@ void encoderIsrLeftC() {
   else  dir = DIR_ERROR;
 
   noInterrupts();
-  encoderLeftdir = dir;
-  encoderLeftPeriod = encoderLeftTime - t;;
+  encoderLeftDir = dir;
+  encoderLeftPeriod = t - encoderLeftTime;;
   encoderLeftTime = t;
   interrupts();
-  ti = ti / 1000;
-  int bin = encC ? 883 : 113;
-  addLog(t, 0, 0, 0, 0, ti, bin);  
+
+  if (dir == FWD) tickPositionLeft++;
+  else if (dir == BKWD) tickPositionLeft--;
 }
 
 void dumpEncoders() {
@@ -441,25 +526,42 @@ void dumpEncoders() {
 
 void readSpeed() {
   unsigned int t = micros();
+  tickPosition = tickPositionRight + tickPositionLeft;
+  tickPositionDiff = tickPositionLeft - tickPositionRight;
+
   //Right
-  if ((t - encoderRightTime) > 100000) {
+  if (encoderRightDir == DIR_ERROR) {
+    fpsRight == 0.0D;
+  } else if ((t - encoderRightTime) > 100000) {
     fpsRight = 0.0D;
   } else {
     fpsRight = (ENC_FACTOR * 1000.0) / ((double) encoderRightPeriod);
+    if (fpsRight > 10.0D) fpsRight = 0.0D;
   }
-  if (encoderRightdir == BKWD) fpsRight = -fpsRight;
+  if (encoderRightDir == BKWD) fpsRight = -fpsRight;
 
   //Left
-  if ((t - encoderLeftTime) > 100000) {
+  if (encoderLeftDir == DIR_ERROR) {
+    fpsLeft = 0.0D;
+  } else if ((t - encoderLeftTime) > 100000) {
     fpsLeft = 0.0D;
   } else {
     fpsLeft = (ENC_FACTOR * 1000.0) / ((double) encoderLeftPeriod);
+    if (fpsLeft > 10.0D) fpsLeft = 0.0D;
   }
-  if (encoderLeftdir == BKWD) fpsLeft = -fpsLeft;
-  
+  if (encoderLeftDir == BKWD) fpsLeft = -fpsLeft;
+
   mFpsRight = (int) (fpsRight * 1000.0);
   mFpsLeft = (int) (fpsLeft * 1000.0);
   wheelSpeedFps = (fpsLeft + fpsRight) / 2.0D;
   mWheelSpeedFps = (mFpsRight + mFpsLeft) / 2;
 }
+//
+//void readSpeed() {
+//  static unsigned int lastRight = 0;
+//  static unsigned int lastLeft = 0;
+//  noInterrupts();
+//  for (int i = 0; i < encoderRightPtr; i++)
+//  interrupts();
+//}
 
