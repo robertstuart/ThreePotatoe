@@ -20,18 +20,19 @@ void sendStatusBluePc() {
       sendBMsg(SEND_FPS, 2, wheelSpeedFps);
       break;
     case 1:
-      sendBMsg(SEND_HEADING, 1, magHeading);
+      sendBMsg(SEND_SONAR_R, 2, sonarRight);
       break;
     case 2:
-      sendBMsg(SEND_BATT_A, 2, sonarLeft);
-      break;
+      sendBMsg(SEND_BATT_A, 2, battAVolt);
+      sendBMsg(SEND_SONAR_L, 2, sonarLeft);
+     break;
     case 3:
-      sendBMsg(SEND_BATT_B, battAVolt); // integer
+      sendBMsg(SEND_BATT_B, battBVolt);
       break;
     default:
       break;
   }
-  sendBMsg(SEND_STATE, getState()); // MUST BE LAST MESSAGE!
+  sendBMsg(SEND_STATE, getState());
 }
 
 void sendStatusXBeeHc() {
@@ -42,11 +43,12 @@ void sendStatusXBeeHc() {
       sendXMsg(SEND_FPS, 2, wheelSpeedFps);
       break;
     case 1:
-      sendXMsg(SEND_HEADING, 1, magHeading);
+      sendXMsg(SEND_SONAR_R, 2, sonarRight);
       break;
     case 2:
       sendXMsg(SEND_BATT_A, 2, battAVolt);
-      break;
+      sendXMsg(SEND_SONAR_L, 2, sonarLeft);
+     break;
     case 3:
       sendXMsg(SEND_BATT_B, battBVolt);
       break;

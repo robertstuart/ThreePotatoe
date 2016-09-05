@@ -208,13 +208,6 @@ boolean interpretRouteLine(String ss) {
       else if (char1 == 'L') co.isRightSonar = false;
       else return false;
       stepString = stepString.substring(1);
-      char2 = stepString.charAt(0);
-      co.type = ' ';
-      if (!isspace(char2)) {
-        co.type = char2;
-        if ((char2 != 'S') && (char2 != 'H')) return false;
-        stepString = stepString.substring(1);
-      }
       co.trigger = readNum();
       Serial.print(co.trigger); Serial.print("   ");
       if (co.trigger == STEP_ERROR) return false;
@@ -316,11 +309,11 @@ boolean interpretRouteLine(String ss) {
 
     case 'M':
       char1 = stepString.charAt(0);
-      //      if      (char1 == 'R') setSonar(SONAR_RIGHT);
-      //      else if (char1 == 'L') setSonar(SONAR_LEFT);
-      //      else if (char1 == 'B') setSonar(SONAR_BOTH);
-      //      else if (char1 == 'N') setSonar(SONAR_NONE);
-      //      else return false;
+      if      (char1 == 'R') setSonar(SONAR_RIGHT);
+      else if (char1 == 'L') setSonar(SONAR_LEFT);
+      else if (char1 == 'B') setSonar(SONAR_BOTH);
+      else if (char1 == 'N') setSonar(SONAR_NONE);
+      else return false;
       break;
 
     case 'N':
@@ -518,76 +511,102 @@ void doChartedObject() {
   if (!isReachedTrigger(co.trigger)) return;
 
   double xyVal;
+  int goodSonars[200];
+  int nGood = 0;
   loc beforeLoc = currentMapLoc;
 
-  // Compute min value of last  2 feet
-  int n = ((int) (20.0D / routeFps)) + 1; // 2 feet of measurement.
-  double minVal = 20.0D;
+  // Compute median value of last  6 feet
+  int nAll = (int) (133.0D / routeFps);      // number of measurement to collect
+//  double minVal = 20.0D;
   if (co.isRightSonar) {
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < nAll; i++) {
       int index = sonarRightArrayPtr - i - 1;
       if (index < 0) index += SONAR_ARRAY_SIZE; //% is not modulus!
-      double val = sonarRightArray[index];
-      if (val < minVal) minVal = val;
+      int val = sonarRightArray[index];
+      if (val < 700) {
+        goodSonars[nGood++] = val;
+      }
     }
   } else {
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < nAll; i++) {
       int index = sonarLeftArrayPtr - i - 1;
       if (index < 0) index += SONAR_ARRAY_SIZE; //% is not modulus!
-      double val = sonarLeftArray[index];
-      if (val < minVal) minVal = val;
+      int val = sonarLeftArray[index];
+      if (val < 700) {
+        goodSonars[nGood++] = val;
+      }
     }
   }
-  //sprintf(message, "Sonar samples: %2d", n);
-  //sendBMsg(SEND_MESSAGE, message);
-  // 7 samples at 3fps
+  coPtr++;
+  if (nGood < 3) return;
+
+  // Log the values
+  for (int i = 0; i < nGood; i++) {
+    addLog(goodSonars[i], 0,0,0,0,0,0);
+  }
+
+  // Find the median, Bubble Sort
+  boolean swapped;
+  while (true) {
+    swapped = false;
+    for (int i = 1; i < nGood; i++) {
+      int a = goodSonars[i - 1];
+      int b = goodSonars[i];
+      if (a > b) {
+        goodSonars[i - 1] = b;
+        goodSonars[i] = a;
+        swapped = true;
+      }
+    }
+    if (!swapped) break;
+  }
+  float medianSonar = ((float) goodSonars[nGood / 2]) / 100.0;
+
+  // Log the values
+  for (int i = 0; i < nGood; i++) {
+    addLog(0,goodSonars[i],0,0,0,0,0);
+  }
+  addLog(0,0,((short) (medianSonar * 100.0)),0,0,0,0);
+  
+//sprintf(message, "Sonar samples: %2d", n);
+//sendBMsg(SEND_MESSAGE, message);
+
   if (!co.isRightSonar) {
     if (isGXAxis) {
       // Left sonar.
       if (isRouteTargetIncreasing) {
-        currentMapLoc.y = co.surface - minVal;
+        currentMapLoc.y = co.surface - medianSonar;
       } else {
-        currentMapLoc.y = co.surface + minVal;
+        currentMapLoc.y = co.surface + medianSonar;
       }
     } else {
       if (isRouteTargetIncreasing) {
-        currentMapLoc.x = co.surface + minVal;
+        currentMapLoc.x = co.surface + medianSonar;
       } else {
-        currentMapLoc.x = co.surface - minVal;
+        currentMapLoc.x = co.surface - medianSonar;
       }
     }
   } else {
     // Right sonar.
     if (isGXAxis) {
       if (isRouteTargetIncreasing) {
-        currentMapLoc.y = co.surface + minVal;
+        currentMapLoc.y = co.surface + medianSonar;
       } else {
-        currentMapLoc.y = co.surface - minVal;
+        currentMapLoc.y = co.surface - medianSonar;
       }
     } else {
       if (isRouteTargetIncreasing) {
-        currentMapLoc.x = co.surface - minVal;
+        currentMapLoc.x = co.surface - medianSonar;
       } else {
-        currentMapLoc.x = co.surface + minVal;
+        currentMapLoc.x = co.surface + medianSonar;
       }
     }
   }
-
-  if (co.type == 'S') {
-    coSetLoc = currentMapLoc;
-  } else if (co.type == 'H') { // fix heading
-    double actualHeading = atan2(currentMapLoc.y - coSetLoc.y,  currentMapLoc.x - coSetLoc.x) * RAD_TO_DEG;
-    double tpHeading = atan2(beforeLoc.y - coSetLoc.y, beforeLoc.x - coSetLoc.x) * RAD_TO_DEG;
-    double angleCorrection = actualHeading - tpHeading;
-    setHeading(currentMapHeading - angleCorrection);
-    sprintf(message, "%5.2f \t%5.2f \t%5.2f", angleCorrection, tpHeading, actualHeading);
-    sendBMsg(SEND_MESSAGE, message);
-  }
-  coPtr++;
-  sprintf(message, "minVal: %5.2f\t  oldX: %5.2f\t oldY: %5.2f\t newX: %5.2f\t newY: %5.2f",
-          minVal, beforeLoc.x, beforeLoc.y, currentMapLoc.x, currentMapLoc.y);
+  
+  sprintf(message, "minVal: %5.2f\t  oldX: %5.2f\t oldY: %5.2f\t newX: %5.2f\t newY: %5.2f", 
+  medianSonar, beforeLoc.x, beforeLoc.y, currentMapLoc.x, currentMapLoc.y);
   sendBMsg(SEND_MESSAGE, message);
-  //  currentMapLoc = beforeLoc;
+//  currentMapLoc = beforeLoc;
 }
 
 
@@ -601,7 +620,7 @@ void doChartedObject() {
  ************************************************************************/
 void steerHeading() {
   static double newBearing = 0.0;
-  float steerVal;
+  steerVal;
 
   if (targetDistance < 1.0) {
     steerVal = 0.0;
@@ -609,9 +628,9 @@ void steerHeading() {
     //    if ((++steerLoop % 200) == 1) newBearing = routeTargetBearing; // 1/2 sec
     addTargetBearing();
     double aDiff = rangeAngle(routeTargetBearing - currentMapHeading);
-
-    steerVal = aDiff * 5.0;  // Was 10.
-
+    float d = gyroYawDelta * 60.0;
+    float p = aDiff * 5.0;  // Was 10.
+    steerVal = p - d;
   }
   servoMsR = ((int) ((-tp6TargetAngle * 50.0) + steerVal)) + servoCenterR;
   servoMsL = ((int) ((tp6TargetAngle * 50.0) + steerVal)) + servoCenterL;

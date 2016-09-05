@@ -174,29 +174,62 @@ void beacon() {
  *      Toggle TP_STATE_RUN_READY on yellow switch.  1 sec dead period.
  **************************************************************************/
 void switches() {
-  static int pressTimer = 0;
-  static int releaseTime = 0;
-  static int dbPressTime = 0;
-  static boolean dbBuState = false;
-  static boolean oldDbBuState = false;
+  static int gnTimer = 0;
+  static boolean gnState = false;
+  static boolean oldGnState = false;
+  static int gnHoldTimer = 0;
 
-  // Debounce
-  boolean buState = digitalRead(SW_LED_PIN) == LOW;
-  if (buState) pressTimer = timeMilliseconds;
-  if ((timeMilliseconds - pressTimer) > 50) dbBuState = false;
-  else dbBuState = true;
+  static int rTimer = 0;
+  static boolean rState = false;
+  static boolean oldRState = false;
 
-  // Press
-  if ((dbBuState) && (!oldDbBuState))   dbPressTime = timeMilliseconds;
+  static int lTimer = 0;
+  static boolean lState = false;
+  static boolean oldLState = false;
+
+  // Debounce green
+  boolean gn = digitalRead(SW_GN_PIN) == LOW;
+  if (gn) gnTimer = timeMilliseconds;
+  if ((timeMilliseconds - gnTimer) > 50) gnState = false;
+  else gnState = true;
+
+  // Debounce right
+  boolean r = digitalRead(SW_R_PIN) == LOW;
+  if (r) rTimer = timeMilliseconds;
+  if ((timeMilliseconds - rTimer) > 50) rState = false;
+  else rState = true;
+
+  // Debounce left
+  boolean (l) = digitalRead(SW_L_PIN) == LOW;
+  if (l) lTimer = timeMilliseconds;
+  if ((timeMilliseconds - lTimer) > 50) lState = false;
+  else lState = true;
   
-  // All actions on release
-  if ((!dbBuState) && (oldDbBuState)) {
-    if ((timeMilliseconds - dbPressTime) > 1000) {
-      if (!isRouteInProgress) startRoute();
-    } else if (isRouteInProgress) stopRoute();
-    else run(!isRunReady);
+  // Green - all actions on release
+  if ((gnState) && (!oldGnState))   gnHoldTimer = timeMilliseconds; // Press green
+  if ((!gnState) && (oldGnState)) {                                 // Release greeen
+    if (!isRouteInProgress && ((timeMilliseconds - gnHoldTimer) > 1000)) {
+      startRoute();
+    } else if (isRouteInProgress) {
+      stopRoute(); 
+    } else {
+      setHeading(0.0D);
+      run(!isRunReady);
+    }
   }
-  oldDbBuState = dbBuState;
+
+  // Turn right or left if runready, increment route if not
+  if (isRunReady) {
+    isRPressed = rState;
+    isLPressed = lState;
+  } else {
+    isRPressed = isLPressed = false;
+    if (rState && !oldRState) setRoute(true);
+  }
+
+  oldGnState = gnState;
+  oldRState = rState;
+  oldLState = lState;
 }
 
 
@@ -246,35 +279,43 @@ void readSonar() {
  *           Called for every sonar reading.
  **************************************************************************/
 void doSonar(float distance, int isRight) {
-if (!isRight) {
   float d = distance - 0.32;
-  int z = (int) (12 * d);
-  Serial.print(d);
-  for (int i = 0; i < z; i++) Serial.print(" ");
-  Serial.println("*");  
-}
     
-  // Collect data for least squares calculation.
-  if (isGXAxis) {
-    lsXArray[lsPtr] = (float) currentMapLoc.x;
-    lsYLArray[lsPtr] = (float) currentMapLoc.y;
-  } else {
-    lsXArray[lsPtr] = (float) currentMapLoc.y;
-    lsYLArray[lsPtr] = (float) currentMapLoc.x;
-  }
-  lsSArray[lsPtr] = (float) distance;
-  if (lsPtr < (LS_ARRAY_SIZE - 1)) lsPtr++;
-
   // Collect data for Charted Object measurements. 
   if (isRight) {     
-    sonarRightArray[sonarRightArrayPtr] = sonarRight;
+    sonarRightArray[sonarRightArrayPtr] = (distance * 100.0);
     sonarRightArrayPtr = ++sonarRightArrayPtr % SONAR_ARRAY_SIZE;
     sonarRight = distance;
   } else {
-    sonarLeftArray[sonarLeftArrayPtr] = sonarLeft;
+    sonarLeftArray[sonarLeftArrayPtr] = (int) (distance * 100.0);
     sonarLeftArrayPtr = ++sonarLeftArrayPtr % SONAR_ARRAY_SIZE;
     sonarLeft = distance;
   }
+  if (isRouteInProgress) {
+    addLog(
+        (long) timeMilliseconds,
+        (short) (currentMapLoc.x * 100.0),
+        (short) (currentMapLoc.y * 100.0),
+        (short) (sonarRight * 100.0),
+        (short) (sonarLeft * 100.0),
+        (short) (0),
+        (short) (routeStepPtr)
+    );
+  }
+}
+
+
+
+/**************************************************************************.
+ *  sonarMode() Set sonars on/off
+ **************************************************************************/
+void setSonar(int mode) {
+  int b = 3;
+  if      (mode == SONAR_NONE)  b = 0;
+  else if (mode == SONAR_LEFT)  b = 1;
+  else if (mode == SONAR_RIGHT) b = 2;
+  else if (mode == SONAR_BOTH)  b = 3;
+  SONAR_SER.print(b);
 }
 
 
@@ -292,22 +333,40 @@ double rangeAngle(double head) {
  *  blink()
  **************************************************************************/
 void blink() {
-  const unsigned int SLOW_BLINK = 500; 
-  const unsigned int FAST_BLINK = 80; 
+  static int routeCycle = 0; //
+  static int routeOffCount = 0;
   static unsigned int blinkTrigger = 0;
   static boolean toggle = false;
   if (timeMilliseconds > blinkTrigger) {
-    int t = (isRouteInProgress) ? SLOW_BLINK : FAST_BLINK;
-    blinkTrigger = t + timeMilliseconds;
+    blinkTrigger = timeMilliseconds + 100;  // 10 per second
     toggle = !toggle;
-    digitalWrite(LED_PIN, toggle);
-    digitalWrite(LED_YE_PIN, toggle);
-  }
+   
+    if(isRouteInProgress) {
+      digitalWrite(LED_GN_PIN, toggle);
+      digitalWrite(LED_PIN, toggle);
+    } else {
+      // Blink route number
+      if (++routeOffCount >=5) {
+        routeOffCount = 0;
+        if (routeCycle <= routeTablePtr) {
+          digitalWrite(LED_GN_PIN, HIGH);
+          digitalWrite(LED_PIN, HIGH);
+        }
+        routeCycle++;
+        if (routeCycle >= (routeTablePtr + 3)) {
+          routeCycle = 0;
+        }
+      } else if (routeOffCount == 2) {
+        digitalWrite(LED_GN_PIN, LOW);
+        digitalWrite(LED_PIN, LOW);
+      }
+    }
+  }  
 }
 
 void run(boolean b) {
-    isRunReady = b;
-    motors(b);
+  isRunReady = b;
+  motors(b);
 }
 
 

@@ -5,6 +5,17 @@
 #include <Wire.h>
 #include <LSM6.h>
 
+// Multiplier for 2000d/sec, stops 2' short    
+// Increasing this value by 0.0005 makes it stop 5' shorter
+//#define GYRO_SENS 0.0697 // Stops 2.5' short
+//#define GYRO_SENS 0.0692 // Stop 1' short
+#define GYRO_SENS 0.0690 // 
+
+// original#define TICKS_PER_FOOT        105.50D  // Hoverboard
+//#define TICKS_PER_FOOT        104.50D  // Hoverboard 1' too long
+//#define TICKS_PER_FOOT        104.00D  // Hoverboard 9" too long
+#define TICKS_PER_FOOT        103.60D  // Hoverboard 9" too long
+
 #define DS33_SA0_HIGH_ADDRESS 0b1101011
 #define DS33_SA0_LOW_ADDRESS  0b1101010
 
@@ -52,12 +63,12 @@ const int HEADING_SOURCE_GM = 3;
 #define SERVO_R_PIN    40
 #define SERVO_L_PIN    41
 
-#define SW_LED_PIN     24 // LED switch
+#define SW_GN_PIN     24 // LED switch
 #define SW_R_PIN       26 // Far right switch
 #define SW_L_PIN       28 // Middle switch
 
 #define LED_PIN        13 // LED connected to digital pin 13
-#define LED_YE_PIN     45
+#define LED_GN_PIN     45
 #define IR_R_PIN       42 // Infrared switch, right
 #define IR_L_PIN       43
 #define GYRO_INTR_PIN  35
@@ -68,8 +79,11 @@ const int HEADING_SOURCE_GM = 3;
 #define A_LIM 20.0 // degrees at which the speedAdjustment starts reducing.
 #define S_LIM 1.0  // maximum speedAdjustment;
 
-int servoCenterR = 1700;
-int servoCenterL = 1530;
+//const int SERVO_CTR = 1580;  // Larger number aims right (turns left as approach target)??????
+const int SERVO_CTR = 1600;  // Larger number aims right (turns left as approach target)
+const int SERVO_CTR_DIFF = 35;  // Larger number causes drift forward.
+int servoCenterR = SERVO_CTR + SERVO_CTR_DIFF;
+int servoCenterL = SERVO_CTR - SERVO_CTR_DIFF;
 
 String tab = "\t";
 
@@ -93,13 +107,11 @@ const double ENC_BRAKE_FACTOR = ENC_FACTOR * 0.95f;
 #define TICKS_PER_PITCH_DEGREE 54.0D
 #define GYRO_WEIGHT 0.98    // Weight for gyro compared to accelerometer
 #define DEFAULT_GRID_OFFSET 0.0
+//#define SONAR_SENS 0.0385
 #define SONAR_SENS 0.0385
-#define TICKS_PER_FOOT        104.50D  // Hoverboard
 #define TICKS_PER_CIRCLE_YAW  558.00D  // Hoverboard
 
 
-// Decrease this value to get greater turn for a given angle
-#define GYRO_SENS 0.0690     // Multiplier to get degree for 2000d/sec
 
 #define INVALID_VAL -123456.78D
 
@@ -157,9 +169,9 @@ struct chartedObject {
   double surface;
 };
 
-#define SONAR_ARRAY_SIZE 20
-double sonarRightArray[SONAR_ARRAY_SIZE];
-double sonarLeftArray[SONAR_ARRAY_SIZE];
+#define SONAR_ARRAY_SIZE 100
+int sonarRightArray[SONAR_ARRAY_SIZE];
+int sonarLeftArray[SONAR_ARRAY_SIZE];
 int sonarRightArrayPtr = 0;
 int sonarLeftArrayPtr = 0;
 
@@ -185,6 +197,9 @@ int lockStartTicks = 0;
 
 int routeStepPtr = 0;
 String routeTitle = "No route";
+
+boolean isRPressed = false;
+boolean isLPressed = false;
 
 boolean isTurnDegrees = false;
 double turnTargetCumHeading = 0.0;
@@ -230,13 +245,15 @@ double gyroPitchRaw = 0.0;
 double gyroPitchRate = 0.0;
 double gyroPitchDelta = 0.0; 
 double gPitch = 0.0;
-
+double gyroYawDelta = 0.0;
 double aPitch = 0.0;
 double aRoll = 0.0;
 
 double pitchDrift = 0.0D;
 double rollDrift = 0.0D;
 double yawDrift = 0.0D;
+
+float steerVal = 0.0;
 
 float gyroFahrenheit = 0.0;
 double gRoll = 0.0;
@@ -366,12 +383,12 @@ double controllerX = 0.0; // +1.0 to -1.0 from controller
 double controllerY = 0.0;  // Y value set by message from controller
 char message[100] = "";
 
-double gyroYawRaw = 0.0f;
-double gyroYawRate = 0.0f;
-double gyroYawAngle = 0.0f;
-double gyroYawRawSum = 0.0;
-double timeDriftPitch = -30.8;
-double timeDriftYaw = -22.3;
+double gyroYawRaw = 0.0D;
+double gyroYawRate = 0.0D;
+double gyroYawAngle = 0.0D;
+double gyroYawRawSum = 0.0D;
+double timeDriftPitch = -30.8D;
+double timeDriftYaw = -22.3D;
 
 float battAVolt = 0.0; // battery 
 float battBVolt = 0.0; // battery 
@@ -514,12 +531,12 @@ void setup() {
 
    
   pinMode(LED_PIN,OUTPUT);  // Status LED
-  pinMode(LED_YE_PIN,OUTPUT);  // 
+  pinMode(LED_GN_PIN,OUTPUT);  // 
   pinMode(IR_R_PIN,OUTPUT);  // To turn off IR led on right
   pinMode(IR_L_PIN,OUTPUT);  // To turn off IR led on right
 
   digitalWrite(LED_PIN, HIGH);
-  digitalWrite(LED_YE_PIN, HIGH);
+  digitalWrite(LED_GN_PIN, HIGH);
   digitalWrite(IR_R_PIN, LOW);
   digitalWrite(IR_L_PIN, LOW);
   
@@ -530,7 +547,7 @@ void setup() {
   
   pinMode(SW_R_PIN, INPUT_PULLUP);
   pinMode(SW_L_PIN, INPUT_PULLUP);
-  pinMode(SW_LED_PIN, INPUT_PULLUP);
+  pinMode(SW_GN_PIN, INPUT_PULLUP);
   pinMode(GYRO_INTR_PIN, INPUT);
 
   pinMode(MOT_RIGHT_ENCA, INPUT);

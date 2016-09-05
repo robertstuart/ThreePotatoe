@@ -98,21 +98,20 @@ void sendLog() {
   logLoop++;
   
   if (isDumpingData) {  // 
-    if ((logLoop % 4) == 0) {
+//    if ((logLoop % 4) == 0) {
       dumpData();
     }
-  }
+//  }
 
-  if ((logLoop % 52) == 0) {
-    log2PerSec();
-  }
+//  if ((logLoop % 52) == 0) {
+//    log2PerSec();
+//  }
 //  if ((logLoop % 10) == 0) {  // 10/sec 
 //    Serial.print(targetHeading); Serial.print("\t"); Serial.println(gyroHeading);  
 //  }
-  if ((logLoop % 5) == 2) { // 20/sec
-    routeLog();
-//    log20PerSec();
-  }
+//  if ((logLoop % 5) == 2) { // 20/sec
+//    routeLog();
+//  }
 }
 
 void log20PerSec() {
@@ -156,8 +155,8 @@ void steer() {
 //  if (digitalRead(SW_L_PIN) == LOW) targetTickPositionDiff -= 0.1;
 //  float  steerVal = ((float) (((int) targetTickPositionDiff) - tickPositionDiff)) * 0.05;
  
-  if (digitalRead(SW_R_PIN) == LOW) targetHeading += 0.25;
-  if (digitalRead(SW_L_PIN) == LOW) targetHeading -= 0.25;
+  if (isRPressed) targetHeading += 0.25;
+  if (isLPressed) targetHeading -= 0.25;
   targetHeading += controllerX * 1.0;
   double aDiff = rangeAngle(targetHeading - gyroHeading);
   float steerVal = aDiff * 5.0;
@@ -180,25 +179,20 @@ void steer() {
  ***********************************************************************/
 #define SERVO_MAX 2.0
 void setServos(int newR, int newL) {
-  static float r = servoCenterR;
-  static float l = servoCenterL;
+  static int loop = 0;
 
-//  // Right value
-//  if ((newR - r) > SERVO_MAX)       r += SERVO_MAX;
-//  else if ((r - newR) > SERVO_MAX)  r -= SERVO_MAX;
-//  else r = newR;
-//
-//  // Left value
-//  if ((newL - l) > SERVO_MAX)       l += SERVO_MAX;
-//  else if ((l - newL) > SERVO_MAX)  l -= SERVO_MAX;
-//  else l = newL;
-r = newR;
-l = newL;
+  int diff =  (servoCenterR - newR) - (servoCenterL - newL);
+  int comp = ((float) diff) * 0.1;
+  comp = 0;
+  newR = constrain((newR - comp), 1120, 2000);   // was 1120
+  newL = constrain((newL - comp), 1220, 2000);   // was 1150, 1180, 1220 affects veer at start
   if (isRunReady) {
-    servoRight.writeMicroseconds((int) r);
-    servoLeft.writeMicroseconds((int) l);
+    servoRight.writeMicroseconds((int) newR);
+    servoLeft.writeMicroseconds((int) newL);
   }
-//Serial.print(r); Serial.print("\t"); Serial.println(newR);
+if ((loop % 20) == 0) {
+  Serial.print(newR); Serial.print("\t"); Serial.println(newL);
+}
 }
 
 /************************************************************************

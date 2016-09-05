@@ -1,3 +1,122 @@
+String cal200[] = {
+  "N Cal200",
+  "KR 0,0 0",
+  "HG",
+  "GY 0,200 6",
+  "F"
+};
+
+
+// AVC Full route, ThreePotatoe
+String avcFn[] = {
+  "N AVC 1",
+  "MR",
+  "KR 120,2   -90",
+  "HG",
+  "GX  90,3     8",      // Down straightaway away from building
+  "GX  60,4     8",      // Down straightaway away from building
+  "GX  35,5     8",      // Down straightaway away from building
+  "GX  10,5     8",      // Down straightaway away from building
+  "TR  80       6  10",
+  "GY   5,35    6",      // Stage
+  "GY   5,46    6",
+  "TR  80       6  10",  // Turn toward building
+  "GX  30,48    6",      // To second barrel
+  "GX  48,52    6",      // To third barrel
+  "GX  67,48    6",      // To fourth barrel
+  "TL  -80      6  16",  // Turn toward hoop
+  "GY  76,63    6",      // (75,63) Stage for sonar
+//  "CR     70    79",     // (70 78) Sonar
+  "GY  76,71    6",      // (75,71) Sonar run
+  "GY  74,80    6",      // (73,80)To hoop
+  "GY  73,102   6",      // To end for turn
+  "TR  80       6  10",  // Turn toward building
+  "GX 128,107   6",      // Stage toward building
+  "GX 133,107    6",      // Toward building
+  "TR  75       6  10",   // Turn toward ramp
+  "GY 138,100   6",      // Stage for sonar
+//  "CR     93    135",    // Sonar
+  "GY 138,92    6",      // Sonar run
+  "GY 137,84    6",      // Veer in slightly to avoid ramp
+  "GY 137,76    6",      // Straight past ramp
+  "GY 140,50    6",      // To pool
+  "GY 140,42    6",      // to hairpins
+  "TR  80       6  10",   // turn away from building
+  "GX 128,37    6",
+  "TL  -80      6  10",   // turn toward start
+  "GY 125,21    6",
+  "TL  -80      6  10",   // turn toward building
+  "GX 135,18    6",
+  "TR  80       6  10",      //
+  "GY 140,10    6",
+  "TR  80       6  10", 
+  "GX 120,5     6",       // Signal end
+//  "GX 110,5     8",      // End 10' past ramp
+  "F"
+};
+// MLC ThreePotatoe
+String mlc[] = {
+  "N MLC 1",
+  "MR",
+  "KR 119,2   -90",
+  "HG",
+  "GX  90,3     8",      // Down straightaway away from building
+  "GX  60,4     8",      // Down straightaway away from building
+  "GX  35,5     8",      // Down straightaway away from building
+  "GX  10,5     8",      // Down straightaway away from building
+  "TR  80       6  10",
+  "GY   5,35    6",      // Stage
+  "GY   5,46    6",
+  "TR  80       6  10",  // Turn toward building
+  "GX  30,48    6",      // To second barrel
+  "GX  48,52    6",      // To third barrel
+  "GX  67,48    6",      // To fourth barrel
+  "TL  -80      6  16",  // Turn toward hoop
+  "GY  76,63    6",      // (75,63) Stage for sonar
+//  "CR     70    79",     // (70 78) Sonar
+  "GY  76,71    6",      // (75,71) Sonar run
+  "GY  74,80    6",      // (73,80)To hoop
+  "GY  73,111   6",      // To end for turn
+  "TR  80       6  10",  // Turn toward building
+  "GX 123,116   6",      // Stage toward building
+  "GX 133,115   6",      // Toward building
+  "TR  75       6  10",   // Turn toward ramp
+  "GY 138,100   6",      // Stage for sonar
+//  "CR     93    135",    // Sonar
+  "GY 138,92    6",      // Sonar run
+  "GY 136,84    6",      // Veer in slightly to avoid ramp
+  "GY 136,76    6",      // Straight past ramp
+  "GY 140,50    6",      // To pool
+  "GY 140,42    6",      // to hairpins
+  "TR  80       6  10",   // turn away from building
+  "GX 128,37    6",
+  "TL  -80      6  10",   // turn toward start
+  "GY 125,21    6",
+  "TL  -80      6  10",   // turn toward building
+  "GX 134,18    6",
+  "TR  80       6  10",      //
+  "GY 139,10    6",
+  "TR  80       6  10", 
+  "GX 119,5     6",       // Signal end
+//  "GX 109,5     8",      // End 10' past ramp
+  "F"
+};
+
+String houseSonar[] = {
+  "N House Sonar",
+  "ML",
+  "KR 0,0 0",
+  "HG",
+  "GY  0,5 3",
+  "TR  90 3 4",
+  "CL  13.5 8.9",
+  "GX 16,7 3",
+//  "T  27,3  3 4",
+  "GX 27,3  3",
+  "F"
+};
+
+
 // From driveway to street and back
 String driveway1[] = {
   "N Driveway 1",
@@ -17,18 +136,19 @@ String street1[] = {
   "KR    5,30  90",
   "HG",
   "GX    8,30  1",    //  
-  "GX   35,25  4",
-  "GX   65,25  3",    //  Enter the street
-  "T    70,50  4 8",  //  Turn left up the street
+  "GX   35,25  5",
+  "GX   50,25  3",    //  Enter the street
+  "GX   65,25  6",    //  Enter the street
+  "T    70,50  5 8",  //  Turn left up the street
   "GY   70,50  7",    //  
   "T    95,80  7 8",
   "GY   95,80  7",    // 11
   "T    84,95  4 8",  // 12  Turn left toward Mensch 
-  "GX   84,95  4",
-  "T    50,30  4 8",  // 14 Left to return
-  "GY   50,30  4",
-  "T    35,30  4 8",
-  "GX   35,30  3",    // 17 Up curb
+  "GX   84,95  5",
+  "T    52,33  4 8",  // 14 Left to return
+  "GY   52,33  6",
+  "T    10,30  5 8",
+  "GX   40,30  4",    // 17 Up curb
   "GX   10,30  5",
   "F"
 };
@@ -757,7 +877,7 @@ String rtA[] = {
 
 
 String *routeTable[] = {
- street1, driveway1};
+   avcFn, houseSonar, street1, driveway1};
 
 int routeTablePtr = 0;
 boolean isLoadedRouteValid = true;
